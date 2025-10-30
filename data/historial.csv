@@ -1,0 +1,9 @@
+Turno_ID,Cliente_ID,Fecha,Inicio,Fin,Tipo,Zonas,Duracion_total,Estado,Notas,FechaRealizado
+535b1af1,3532400475,2025-10-29,09:00,09:20,Descartable,Axilas,20,Realizado,,2025-10-29 18:58
+af725c77,ffggg,2025-10-29,10:30,11:20,Descartable,"Axilas, Media Pierna",50,Realizado,hhg,2025-10-29 18:58
+9729e620,3573,2025-10-31,13:20,13:45,Láser,Media Pierna,25,Realizado,,2025-10-29 18:58
+56a42dae,35342628762,2025-10-29,15:00,15:45,Descartable,Pierna Completa,45,Realizado,,2025-10-29 18:58
+88a5d64d,Juan Alberto,2025-10-29,11:30,12:35,Descartable,"Pierna Completa, Axilas",65,Realizado,,2025-10-29 18:58
+35be4f6d,3532400475,2025-10-29,12:40,13:35,Láser,"Pierna Completa, Axilas",55,Realizado,,2025-10-29 18:58
+fa0ff73b,sdwedew,2025-10-29,13:40,14:35,Láser,"Pierna Completa, Axilas",55,Realizado,,2025-10-29 18:58
+fdaeaa46,353240047,2025-10-29,16:30,17:00,Descartable,Medias piernas,30,Realizado,,2025-10-29 19:13

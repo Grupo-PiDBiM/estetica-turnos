@@ -1,0 +1,18 @@
+Tipo,Zona,Duracion_min,Precio
+,,0,0
+Láser,Medias piernas,25,16000
+Láser,Piernas completas,40,25000
+Láser,Brazos,30,18000
+Láser,Medio brazo,20,12000
+Láser,Cavado,20,12000
+Láser,Tiro de cola,15,10000
+Láser,Rostro completo,25,15000
+Láser,Cara,15,9000
+Descartable,Medias piernas,30,12000
+Descartable,Piernas completas,45,20000
+Descartable,Brazos,35,15000
+Descartable,Medio brazo,25,10000
+Descartable,Cavado,25,10000
+Descartable,Tiro de cola,20,8000
+Descartable,Rostro completo,30,12000
+Descartable,Cara,20,8000
