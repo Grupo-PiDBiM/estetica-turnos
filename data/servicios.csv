@@ -1,5 +1,4 @@
 Tipo,Zona,Duracion_min,Precio
-,,0,0
 Láser,Medias piernas,25,16000
 Láser,Piernas completas,40,25000
 Láser,Brazos,30,18000
@@ -16,3 +15,4 @@ Descartable,Cavado,25,10000
 Descartable,Tiro de cola,20,8000
 Descartable,Rostro completo,30,12000
 Descartable,Cara,20,8000
+,,0,0

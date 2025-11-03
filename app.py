@@ -1,10 +1,7 @@
 # ==========================================================
 # Estética | Turnos tipo Calendly (Local, sin Google/Secrets)
 # Landing + Reserva paso a paso + Admin (Agenda, Servicios, Clientes)
-# - Solo 2 tabs (Descartable / Láser)
-# - Sin historial
-# - Sin botón "agregar servicios faltantes"
-# - Limpieza de duplicados y claves únicas de botones
+# - Mejora: selección por grupos exclusivos (Piernas, Brazos, Rostro) + zonas sueltas
 # ==========================================================
 import streamlit as st
 import pandas as pd
@@ -30,7 +27,6 @@ FILES = {
 # Parámetros
 SLOT_STEP_MIN = 10
 BUFFER_MIN_DEFAULT = 5
-PIERNAS_EXCLUSIVAS = ["Medias piernas", "Piernas completas"]
 
 # Admin
 ADMIN_USER = "admin"
@@ -95,21 +91,16 @@ def load_df(name: str) -> pd.DataFrame:
     df = pd.read_csv(FILES[name], dtype=str).fillna("")
 
     if name == "servicios":
-        # Normalizar strings y eliminar duplicados/filas vacías
         for col in ["Tipo", "Zona"]:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip()
-        # Quitar filas con Tipo o Zona vacíos
         df = df[(df["Tipo"] != "") & (df["Zona"] != "")]
-        # Tipos numéricos
         for c in ["Duracion_min", "Precio"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
-        # Duplicados por (Tipo, Zona)
         df = df.drop_duplicates(subset=["Tipo", "Zona"], keep="first").reset_index(drop=True)
 
     elif name == "clientes":
-        # Mantener WhatsApp como ID si falta
         if "Cliente_ID" in df.columns and "WhatsApp" in df.columns:
             df["Cliente_ID"] = df["Cliente_ID"].astype(str).str.strip()
             df["WhatsApp"] = df["WhatsApp"].astype(str).str.strip()
@@ -150,16 +141,20 @@ def calc_duracion(servicios_df: pd.DataFrame, tipo: str, zonas: list[str]) -> in
         return 0
     return int(sel["Duracion_min"].sum())
 
+def calc_precio(servicios_df: pd.DataFrame, tipo: str, zonas: list[str]) -> int:
+    sel = servicios_df[(servicios_df["Tipo"] == tipo) & (servicios_df["Zona"].isin(zonas))]
+    if sel.empty:
+        return 0
+    return int(sel["Precio"].sum())
+
 def generar_slots(date_obj: date, dur_min: int, turnos_df: pd.DataFrame, slot_step_min: int = SLOT_STEP_MIN):
-    """Genera slots en base a disponibilidad + turnos tomados + buffer."""
     if dur_min <= 0:
         return []
-    weekday = date_obj.isoweekday()  # 1..7
+    weekday = date_obj.isoweekday()
     tramos = DEFAULT_DISPONIBILIDAD_CODE.get(weekday, [])
     if not tramos:
         return []
 
-    # Turnos activos ese día (no cancelados / no-show)
     day_turnos = pd.DataFrame()
     if not turnos_df.empty:
         day_turnos = turnos_df[(turnos_df["Fecha"] == date_obj) &
@@ -208,9 +203,9 @@ if "vista" not in st.session_state:
     st.session_state["vista"] = "home"
 
 _defaults_booking_state = {
-    "step": "pick_service",  # pick_service -> pick_date -> pick_time -> client_details -> confirm
+    "step": "pick_service",
     "service_tipo": None,
-    "service_zonas": None,   # lista (maneja exclusividad piernas)
+    "service_zonas": None,
     "duracion": 0,
     "precio_total": 0,
     "fecha": None,
@@ -228,16 +223,9 @@ if "booking" not in st.session_state:
 # =========================
 st.markdown("""
 <style>
-.card { background:#fff; border:1px solid #ececec; border-radius:14px; padding:16px; box-shadow:0 2px 8px rgba(10,10,10,0.04); }
-.card h4 { margin:0 0 6px 0; }
-.badge { display:inline-block; padding:2px 8px; border-radius:10px; background:#EEF2FF; color:#344; font-size:12px; margin-right:6px;}
-.price { font-weight:700; }
-.btn-slot { width:100%; padding:10px 0; border-radius:10px; border:1px solid #eaeaea; background:#fff; }
-.btn-slot:hover { border-color:#bbb; background:#f8f8f8; }
 .step-title { font-weight:700; font-size:20px; margin:4px 0 12px; }
-.muted { color:#666; font-size:13px; }
-hr { border:none; border-top:1px solid #eee; margin:8px 0 16px; }
 .confirm-box { background:#F6FFED; border:1px solid #B7EB8F; border-radius:12px; padding:16px; }
+.muted { color:#666; font-size:13px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -298,7 +286,7 @@ if st.session_state["vista"] == "reserva":
     st.markdown("### Reservá tu turno en 3 pasos")
     booking = st.session_state["booking"]
 
-    # STEP 1 — Elegir Servicio
+    # === STEP 1 — Elegir Servicio (grupos exclusivos + zonas sueltas)
     if booking["step"] == "pick_service":
         st.markdown('<div class="step-title">1) Elegí tu servicio</div>', unsafe_allow_html=True)
 
@@ -306,85 +294,70 @@ if st.session_state["vista"] == "reserva":
             st.warning("No hay servicios cargados. Volvé más tarde.")
             st.stop()
 
-        # Filtrar tipos válidos (sin vacíos) y ordenar como Láser/Descartable
+        # Tipos y orden preferido
         tipos_raw = [t for t in servicios_df["Tipo"].unique().tolist() if str(t).strip() != ""]
-        # Orden fijo si existen ambos; si no, lo que haya
         prefer = ["Descartable", "Láser"]
         tipos = [t for t in prefer if t in tipos_raw] + [t for t in tipos_raw if t not in prefer]
 
-        tab_objs = st.tabs([f"🧴 {t}" for t in tipos])
+        tipo_sel = st.selectbox("Tipo", tipos, index=0, key="tipo_sel")
 
-        for i, t in enumerate(tipos):
-            with tab_objs[i]:
-                df_t = servicios_df[(servicios_df["Tipo"] == t) & (servicios_df["Zona"].str.strip() != "")].copy()
-                # Si por algún motivo hay zonas duplicadas, quedate con la primera
-                df_t = df_t.drop_duplicates(subset=["Zona"], keep="first")
-                zonas = df_t["Zona"].tolist()
-                cols_per_row = 3
-                rows = (len(zonas) + cols_per_row - 1) // cols_per_row
-                for r in range(rows):
-                    cols = st.columns(cols_per_row)
-                    for c in range(cols_per_row):
-                        idx = r * cols_per_row + c
-                        if idx >= len(zonas):
-                            continue
-                        z = zonas[idx]
-                        row = df_t[df_t["Zona"] == z].iloc[0]
-                        dur = int(row["Duracion_min"])
-                        price = int(row["Precio"])
-                        with cols[c]:
-                            st.markdown(f"""
-                            <div class="card">
-                              <h4>{z}</h4>
-                              <span class="badge">{t}</span>
-                              <span class="badge">⏱ {dur} min</span>
-                              <div class="price">AR$ {price:,}</div>
-                              <div class="muted">Click para seleccionar</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            # 🔑 clave única garantizada con idx
-                            if st.button(f"Elegir {z}", key=f"pick_{t}_{z}_{idx}", use_container_width=True):
-                                zonas_sel = [z]
-                                if z in PIERNAS_EXCLUSIVAS:
-                                    zonas_sel = [z]
-                                booking["service_tipo"] = t
-                                booking["service_zonas"] = zonas_sel
-                                booking["duracion"] = calc_duracion(servicios_df, t, zonas_sel)
-                                booking["precio_total"] = int(row["Precio"])
-                                booking["step"] = "pick_date"
-                                st.session_state["booking"] = booking
-                                st.rerun()
+        # Zonas disponibles para el tipo seleccionado
+        zonas_tipo = servicios_df[(servicios_df["Tipo"] == tipo_sel) & (servicios_df["Zona"].str.strip() != "")]["Zona"].unique().tolist()
 
-        # Combinación (opcional)
-        st.markdown("#### ¿Querés combinar zonas del mismo tipo?")
-        with st.expander("Armar combinación (avanzado)"):
-            tipo_combo = st.selectbox("Tipo", tipos, key="combo_tipo")
-            zonas_tipo = servicios_df[(servicios_df["Tipo"] == tipo_combo) & (servicios_df["Zona"].str.strip() != "")]["Zona"].unique().tolist()
-            piernas_opts = [z for z in PIERNAS_EXCLUSIVAS if z in zonas_tipo]
-            piernas_choice = st.radio("Piernas (exclusivo)", ["Ninguna"] + piernas_opts, index=0, horizontal=True, key="combo_piernas")
-            otras = [z for z in zonas_tipo if z not in PIERNAS_EXCLUSIVAS]
-            zonas_extra = st.multiselect("Otras zonas", otras, key="combo_otras")
+        # Definir grupos exclusivos (solo se muestran si existen sus opciones en el catálogo)
+        GROUP_RULES = {
+            "Piernas": ["Medias piernas", "Piernas completas"],
+            "Brazos":  ["Brazos", "Medio brazo"],
+            "Rostro":  ["Rostro completo", "Cara"],
+        }
 
-            zonas_final = []
-            if piernas_choice != "Ninguna":
-                zonas_final.append(piernas_choice)
-            zonas_final.extend(zonas_extra)
+        # Radios por grupo exclusivo
+        seleccion_grupos = []
+        for grupo, miembros in GROUP_RULES.items():
+            presentes = [m for m in miembros if m in zonas_tipo]
+            if len(presentes) >= 2:  # solo tiene sentido si hay al menos 2 variantes
+                st.markdown(f"##### {grupo} (exclusivo)")
+                choice = st.radio(
+                    f"Elegí una sola opción de {grupo.lower()} (o ninguna)",
+                    ["Ninguna"] + presentes, index=0, horizontal=True, key=f"radio_{tipo_sel}_{grupo}"
+                )
+                if choice != "Ninguna":
+                    seleccion_grupos.append(choice)
 
-            if st.button("Usar esta combinación", type="secondary"):
-                if not zonas_final:
-                    st.warning("Elegí al menos una zona.")
-                else:
-                    booking["service_tipo"] = tipo_combo
-                    booking["service_zonas"] = zonas_final
-                    booking["duracion"] = calc_duracion(servicios_df, tipo_combo, zonas_final)
-                    price_sum = servicios_df[(servicios_df["Tipo"] == tipo_combo) &
-                                             (servicios_df["Zona"].isin(zonas_final))]["Precio"].sum()
-                    booking["precio_total"] = int(price_sum)
-                    booking["step"] = "pick_date"
-                    st.session_state["booking"] = booking
-                    st.rerun()
+        # Zonas sueltas = todas menos las de los grupos
+        usados_en_grupos = {m for ml in GROUP_RULES.values() for m in ml}
+        zonas_sueltas = [z for z in zonas_tipo if z not in usados_en_grupos]
+        if zonas_sueltas:
+            st.markdown("##### Otras zonas")
+            zonas_extra = st.multiselect("Podés elegir múltiples zonas", zonas_sueltas, key=f"otras_{tipo_sel}")
+        else:
+            zonas_extra = []
 
-    # STEP 2 — Elegir Fecha
+        # Construir selección final
+        zonas_final = list(dict.fromkeys(seleccion_grupos + zonas_extra))
+
+        # Feedback de duración y precio
+        dur_preview = calc_duracion(servicios_df, tipo_sel, zonas_final) if zonas_final else 0
+        precio_preview = calc_precio(servicios_df, tipo_sel, zonas_final) if zonas_final else 0
+
+        c1, c2, c3 = st.columns([1,1,2])
+        c1.metric("Duración total", f"{dur_preview} min")
+        c2.metric("Precio estimado", f"AR$ {precio_preview:,}")
+        c3.caption("La duración y el precio se calculan sumando todas las zonas elegidas.")
+
+        if st.button("Continuar con estas zonas ➡️", type="primary", use_container_width=True):
+            if not zonas_final:
+                st.warning("Elegí al menos una zona.")
+            else:
+                booking["service_tipo"] = tipo_sel
+                booking["service_zonas"] = zonas_final
+                booking["duracion"] = dur_preview
+                booking["precio_total"] = precio_preview
+                booking["step"] = "pick_date"
+                st.session_state["booking"] = booking
+                st.rerun()
+
+    # === STEP 2 — Elegir Fecha
     if booking["step"] == "pick_date":
         st.markdown('<div class="step-title">2) Elegí la fecha</div>', unsafe_allow_html=True)
         st.caption(f"Servicio: **{booking['service_tipo']}** — Zonas: **{humanize_list(booking['service_zonas'] or [])}** — ⏱ {booking['duracion']} min — AR$ {booking['precio_total']:,}")
@@ -392,7 +365,7 @@ if st.session_state["vista"] == "reserva":
         c1, c2 = st.columns([1, 3])
         with c1:
             fecha = st.date_input("Fecha", min_value=date.today(), value=booking["fecha"] or date.today())
-            if st.button("⬅ Cambiar servicio"):
+            if st.button("⬅ Cambiar selección de zonas"):
                 st.session_state["booking"] = _defaults_booking_state.copy()
                 st.session_state["booking"]["step"] = "pick_service"
                 st.rerun()
@@ -408,7 +381,7 @@ if st.session_state["vista"] == "reserva":
                 st.session_state["booking"] = booking
                 st.rerun()
 
-    # STEP 3 — Elegir Horario
+    # === STEP 3 — Elegir Horario
     if booking["step"] == "pick_time":
         st.markdown('<div class="step-title">3) Elegí el horario</div>', unsafe_allow_html=True)
         st.caption(f"{booking['fecha']} — {booking['service_tipo']} / {humanize_list(booking['service_zonas'] or [])} — ⏱ {booking['duracion']} min — AR$ {booking['precio_total']:,}")
@@ -455,11 +428,11 @@ if st.session_state["vista"] == "reserva":
             st.session_state["booking"] = booking
             st.rerun()
 
-    # STEP 4 — Datos del cliente
+    # === STEP 4 — Datos del cliente
     if booking["step"] == "client_details":
         st.markdown('<div class="step-title">4) Tus datos</div>', unsafe_allow_html=True)
         st.caption(f"{booking['fecha']} — {booking['slot_dt'].strftime('%H:%M') if booking['slot_dt'] else ''} — {booking['service_tipo']} / {humanize_list(booking['service_zonas'] or [])}")
-        turnos_df = load_df("turnos")  # refresco
+        turnos_df = load_df("turnos")
         clientes_df = load_df("clientes")
 
         with st.form("client_form"):
@@ -473,7 +446,6 @@ if st.session_state["vista"] == "reserva":
             if not nombre.strip() or not whatsapp.strip() or not booking["slot_dt"]:
                 st.warning("Completá nombre, WhatsApp y elegí un horario.")
             else:
-                # Alta/actualización cliente (usa WhatsApp como ID por simplicidad)
                 if clientes_df.empty or not (clientes_df["Cliente_ID"].astype(str) == whatsapp.strip()).any():
                     clientes_df = pd.concat([clientes_df, pd.DataFrame([{
                         "Cliente_ID": whatsapp.strip(),
@@ -490,7 +462,6 @@ if st.session_state["vista"] == "reserva":
                         clientes_df.at[ix, "Email"] = email.strip()
                 save_df("clientes", clientes_df)
 
-                # Guardar turno
                 inicio_str = booking["slot_dt"].strftime("%H:%M")
                 fin_str = (booking["slot_dt"] + timedelta(minutes=booking["duracion"])).strftime("%H:%M")
                 turno_id = str(uuid.uuid4())[:8]
@@ -524,7 +495,7 @@ if st.session_state["vista"] == "reserva":
             st.session_state["booking"] = booking
             st.rerun()
 
-    # STEP 5 — Confirmación
+    # === STEP 5 — Confirmación
     if booking["step"] == "confirm":
         st.success("¡Listo! Tu turno fue confirmado ✅")
         st.markdown("""
@@ -566,7 +537,6 @@ if st.session_state["vista"] == "admin":
 
     tab_turnos, tab_servicios, tab_clientes = st.tabs(["📆 Ver y gestionar turnos", "🧾 Duraciones y costos", "👤 Clientes"])
 
-    # -------- 📆 VER Y GESTIONAR TURNOS
     with tab_turnos:
         turnos_df = load_df("turnos")
         clientes_df = load_df("clientes")
@@ -595,7 +565,6 @@ if st.session_state["vista"] == "admin":
 
         st.divider()
 
-        # -------- 🧾 DURACIONES Y COSTOS (inline)
         st.markdown("### 🧾 Duraciones y costos (servicios)")
         servicios_df = load_df("servicios")
         st.caption("Podés editar los valores directamente y guardar.")
@@ -613,7 +582,6 @@ if st.session_state["vista"] == "admin":
 
         st.divider()
 
-        # -------- 🛠️ EDITAR TURNOS (masivo)
         st.markdown("### 🛠️ Editar turnos (toda la base en una sola tabla)")
         st.caption("Cambiá Estado, reprogramá Fecha/Inicio/Fin o ajustá Notas.")
         base_turnos = load_df("turnos")
@@ -643,7 +611,6 @@ if st.session_state["vista"] == "admin":
                 st.success("Cambios guardados.")
                 st.rerun()
 
-    # -------- 🧾 DURACIONES Y COSTOS (tab separado)
     with tab_servicios:
         servicios_df = load_df("servicios")
         st.markdown("#### Duraciones y costos")
@@ -660,7 +627,6 @@ if st.session_state["vista"] == "admin":
             save_df("servicios", edit_serv_tab)
             st.success("Servicios guardados.")
 
-    # -------- 👤 CLIENTES
     with tab_clientes:
         clientes_df = load_df("clientes")
         st.markdown("#### Base de clientes")
