@@ -1,0 +1,11 @@
+Fecha archivo: 2025-11-06 18:25
+Turno_ID: 9f609583
+Cliente_ID: 3532400475
+Nombre: Santi Bazzani
+Turno Fecha: 2025-11-07
+Horario: 09:20 - 09:40
+Tipo: Descartable
+Zonas: Tiro de cola
+Duración (min): 20
+Estado: Realizado
+Notas: 
